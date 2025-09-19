@@ -13,34 +13,28 @@ const PORT = process.env.PORT || 3001;
 
 // --- Middleware beállítások ---
 app.use(cors());
-// A limit növelése, hogy nagyobb (base64 kódolt) képeket is tudjunk fogadni
 app.use(bodyParser.json({ limit: '10mb' }));
 
 // --- API Végpontok (Routes) ---
 
 app.get('/', (req, res) => {
-  res.send('Szia! A GuardenGuard képelemző szerver fut.');
+  res.send('Szia! A GuardenGuard képelemző és chat szerver fut.');
 });
 
 // Végpont a képelemzéshez
 app.post('/analyze-image', async (req, res) => {
   try {
-    // A Flutter app egy base64 kódolt string-ként küldi a képet
     const { image } = req.body;
-
     if (!image) {
       return res.status(400).json({ error: "Nincs kép megadva a kérésben." });
     }
-
     const openaiApiKey = process.env.OPENAI_API_KEY;
-
-    if (!openaiApiKey || openaiApiKey === "IDE_MASOLD_BE_AZ_OPENAI_API_KULCSODAT") {
-        return res.status(500).json({ error: "OpenAI API kulcs nincs beállítva a szerveren." });
+    if (!openaiApiKey) {
+        return res.status(500).json({ error: "OpenAI API kulcs nincs beállítva." });
     }
 
-    // A payload, amit az OpenAI API-nak küldünk
     const payload = {
-      model: "gpt-4o", // A legújabb, képelemzésre képes modell
+      model: "gpt-4o",
       messages: [
         {
           role: "user",
@@ -51,35 +45,61 @@ app.post('/analyze-image', async (req, res) => {
             },
             {
               type: "image_url",
-              image_url: {
-                // A képet data URL formátumban adjuk át
-                "url": `data:image/jpeg;base64,${image}`
-              }
+              image_url: { "url": `data:image/jpeg;base64,${image}` }
             }
           ]
         }
       ],
-      max_tokens: 500 // Korlátozzuk a válasz hosszát
+      max_tokens: 500
     };
 
-    // Kérés küldése az OpenAI API-hoz
     const response = await axios.post('https://api.openai.com/v1/chat/completions', payload, {
-      headers: {
-        'Authorization': `Bearer ${openaiApiKey}`,
-        'Content-Type': 'application/json'
-      }
+      headers: { 'Authorization': `Bearer ${openaiApiKey}` }
     });
-
-    const analysis = response.data.choices[0].message.content;
-    
-    // A válasz visszaküldése a Flutter appnak
-    res.status(200).json({ analysis: analysis });
-
+    res.status(200).json({ analysis: response.data.choices[0].message.content });
   } catch (error) {
-    console.error("Hiba az OpenAI API hívás során:", error.response ? error.response.data : error.message);
+    console.error("Hiba az OpenAI API hívás során (kép):", error.response ? error.response.data : error.message);
     res.status(500).json({ error: "Hiba a szerver oldali képelemzés során." });
   }
 });
+
+// ÚJ VÉGPONT: Szöveges chat kezelése
+app.post('/chat', async (req, res) => {
+  try {
+    const { prompt } = req.body;
+    if (!prompt) {
+      return res.status(400).json({ error: "Nincs kérdés (prompt) megadva." });
+    }
+    const openaiApiKey = process.env.OPENAI_API_KEY;
+    if (!openaiApiKey) {
+        return res.status(500).json({ error: "OpenAI API kulcs nincs beállítva." });
+    }
+
+    const payload = {
+      model: "gpt-4o",
+      messages: [
+        {
+          role: "system",
+          content: "Te egy segítőkész kertész asszisztens vagy a GuardenGuard alkalmazásban. Válaszolj a felhasználók növényekkel, kertészkedéssel kapcsolatos kérdéseire röviden, közérthetően és barátságosan, magyar nyelven."
+        },
+        {
+          role: "user",
+          content: prompt
+        }
+      ],
+      max_tokens: 300
+    };
+
+    const response = await axios.post('https://api.openai.com/v1/chat/completions', payload, {
+      headers: { 'Authorization': `Bearer ${openaiApiKey}` }
+    });
+    res.status(200).json({ response: response.data.choices[0].message.content });
+  } catch (error) {
+    console.error("Hiba az OpenAI API hívás során (chat):", error.response ? error.response.data : error.message);
+    res.status(500).json({ error: "Hiba a szerver oldali válaszadás során." });
+  }
+});
+
 
 // --- Szerver indítása ---
 app.listen(PORT, () => {
